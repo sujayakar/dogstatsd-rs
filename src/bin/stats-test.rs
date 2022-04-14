@@ -13,7 +13,7 @@ async fn main() -> anyhow::Result<()> {
     let name = format!("gaussian{suffix}");
     
     let options = Options::new("127.0.0.1:9000", &addr, "sujay-test", vec![]);
-    let client = Client::new(options).await?;
+    let mut client = Client::new(options).await?;
 
     let mut rng = rand::thread_rng();
     let normal = Normal::<f64>::new(100., 10.)?;
@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
             start = now;
         }        
         let sample = format!("{}", normal.sample(&mut rng));
-        client.distribution(&name, &sample, &["tag:sup"]).await?;
+        client.distribution(&name, &sample, &["tag:sup"])?;
         i += 1;
 
         if delay_ns > 0 {

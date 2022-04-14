@@ -73,7 +73,7 @@
 extern crate chrono;
 
 use chrono::Utc;
-use std::borrow::Cow;
+use std::{borrow::Cow, os::unix::{net::UnixDatagram, prelude::{AsRawFd, FromRawFd}}, fs::File, io::Write};
 use tokio::net::UdpSocket;
 
 mod error;
@@ -154,7 +154,7 @@ impl Options {
 /// The client struct that handles sending metrics to the Dogstatsd server.
 #[derive(Debug)]
 pub struct Client {
-    socket: UdpSocket,
+    file: File,
     from_addr: String,
     to_addr: String,
     namespace: String,
@@ -182,10 +182,13 @@ impl Client {
     ///   let client = Client::new(Options::default()).unwrap();
     /// ```
     pub async fn new(options: Options) -> Result<Self, DogstatsdError> {
-        let socket = UdpSocket::bind(&options.from_addr).await?;
-        socket.connect(&options.to_addr).await?;
+        let os = std::env::consts::OS;
+        assert!(os == "linux" || os == "macos", "Unsupported platform {}", os);
+        let socket = UnixDatagram::unbound()?;
+        socket.connect(&options.to_addr)?;
+        let file = unsafe { File::from_raw_fd(socket.as_raw_fd()) };
         Ok(Client {
-            socket,
+            file,
             from_addr: options.from_addr,
             to_addr: options.to_addr,
             namespace: options.namespace,
@@ -346,13 +349,13 @@ impl Client {
     ///   client.distribution("distribution", "67890", &["tag:distribution"])
     ///       .unwrap_or_else(|e| println!("Encountered error: {}", e));
     /// ```
-    pub async fn distribution<'a, I, S, SS, T>(&self, stat: S, val: SS, tags: I) -> DogstatsdResult
+    pub fn distribution<'a, I, S, SS, T>(&mut self, stat: S, val: SS, tags: I) -> DogstatsdResult
         where I: IntoIterator<Item=T>,
               S: Into<Cow<'a, str>>,
               SS: Into<Cow<'a, str>>,
               T: AsRef<str>,
     {
-        self.send(&DistributionMetric::new(stat.into().as_ref(), val.into().as_ref()), tags).await
+        self.send(&DistributionMetric::new(stat.into().as_ref(), val.into().as_ref()), tags)
     }
 
     // /// Report a value in a set
@@ -430,13 +433,14 @@ impl Client {
     //     self.send(&Event::new(title.into().as_ref(), text.into().as_ref()), tags)
     // }
 
-    async fn send<I, M, S>(&self, metric: &M, tags: I) -> DogstatsdResult
+    fn send<I, M, S>(&mut self, metric: &M, tags: I) -> DogstatsdResult
         where I: IntoIterator<Item=S>,
               M: Metric,
               S: AsRef<str>,
     {        
         let formatted_metric = format_for_send(metric, &self.namespace, tags, &self.default_tags);
-        assert_eq!(self.socket.send(formatted_metric.as_slice()).await?, formatted_metric.len());
+        self.file.write_all(formatted_metric.as_slice())?;
+        // assert_eq!(self.socket.send(formatted_metric.as_slice()).await?, formatted_metric.len());
         Ok(())
     }
 }
