@@ -190,6 +190,7 @@ impl Client {
         };
         socket.connect(&options.to_addr)?;
         let file = unsafe { File::from_raw_fd(socket.as_raw_fd()) };
+        std::mem::forget(socket);
         Ok(Client {
             file,
             from_addr: options.from_addr,
