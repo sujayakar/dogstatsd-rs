@@ -73,7 +73,7 @@
 extern crate chrono;
 
 use chrono::Utc;
-use std::{borrow::Cow, os::unix::{net::UnixDatagram, prelude::{AsRawFd, FromRawFd}}, fs::File, io::Write, net::UdpSocket};
+use std::{borrow::Cow, os::unix::{net::UnixDatagram, prelude::{AsRawFd, FromRawFd, IntoRawFd}}, fs::File, io::Write, net::UdpSocket};
 
 mod error;
 pub use self::error::DogstatsdError;
@@ -153,7 +153,7 @@ impl Options {
 /// The client struct that handles sending metrics to the Dogstatsd server.
 #[derive(Debug)]
 pub struct Client {
-    file: File,
+    fd: libc::c_int,
     from_addr: String,
     to_addr: String,
     namespace: String,
@@ -183,16 +183,17 @@ impl Client {
     pub async fn new(options: Options) -> Result<Self, DogstatsdError> {
         let os = std::env::consts::OS;
         assert!(os == "linux" || os == "macos", "Unsupported platform {}", os);
-        let socket = unsafe {
+        let fd = unsafe {
             let ret = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, libc::IPPROTO_IP);
             assert!(ret != -1);
-            UdpSocket::from_raw_fd(ret)
+
+            let socket = UdpSocket::from_raw_fd(ret);
+            socket.connect(&options.to_addr)?;
+
+            socket.into_raw_fd()
         };
-        socket.connect(&options.to_addr)?;
-        let file = unsafe { File::from_raw_fd(socket.as_raw_fd()) };
-        std::mem::forget(socket);
         Ok(Client {
-            file,
+            fd,
             from_addr: options.from_addr,
             to_addr: options.to_addr,
             namespace: options.namespace,
@@ -443,7 +444,12 @@ impl Client {
               S: AsRef<str>,
     {        
         let formatted_metric = format_for_send(metric, &self.namespace, tags, &self.default_tags);
-        self.file.write_all(formatted_metric.as_slice())?;
+        unsafe {
+            let s = formatted_metric.as_slice();
+            let ret = libc::write(self.fd, s.as_ptr() as *const _, s.len());
+            assert_eq!(ret, s.len() as isize);
+        }
+        //self.file.write_all(formatted_metric.as_slice())?;
         // assert_eq!(self.socket.send(formatted_metric.as_slice()).await?, formatted_metric.len());
         Ok(())
     }
