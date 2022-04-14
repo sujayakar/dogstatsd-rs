@@ -185,7 +185,7 @@ impl Client {
         assert!(os == "linux" || os == "macos", "Unsupported platform {}", os);
         let socket = unsafe {
             let ret = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, libc::IPPROTO_IP);
-            assert!(ret == 0);
+            assert!(ret != -1);
             UdpSocket::from_raw_fd(ret)
         };
         socket.connect(&options.to_addr)?;
