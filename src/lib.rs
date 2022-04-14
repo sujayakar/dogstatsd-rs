@@ -183,7 +183,11 @@ impl Client {
     pub async fn new(options: Options) -> Result<Self, DogstatsdError> {
         let os = std::env::consts::OS;
         assert!(os == "linux" || os == "macos", "Unsupported platform {}", os);
-        let socket = UdpSocket::bind(&options.from_addr)?;
+        let socket = unsafe {
+            let ret = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, libc::IPPROTO_IP);
+            assert!(ret == 0);
+            UdpSocket::from_raw_fd(ret)
+        };
         socket.connect(&options.to_addr)?;
         let file = unsafe { File::from_raw_fd(socket.as_raw_fd()) };
         Ok(Client {
