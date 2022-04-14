@@ -73,8 +73,7 @@
 extern crate chrono;
 
 use chrono::Utc;
-use std::{borrow::Cow, os::unix::{net::UnixDatagram, prelude::{AsRawFd, FromRawFd}}, fs::File, io::Write};
-use tokio::net::UdpSocket;
+use std::{borrow::Cow, os::unix::{net::UnixDatagram, prelude::{AsRawFd, FromRawFd}}, fs::File, io::Write, net::UdpSocket};
 
 mod error;
 pub use self::error::DogstatsdError;
@@ -184,7 +183,7 @@ impl Client {
     pub async fn new(options: Options) -> Result<Self, DogstatsdError> {
         let os = std::env::consts::OS;
         assert!(os == "linux" || os == "macos", "Unsupported platform {}", os);
-        let socket = UnixDatagram::unbound()?;
+        let socket = UdpSocket::bind(&options.from_addr)?;
         socket.connect(&options.to_addr)?;
         let file = unsafe { File::from_raw_fd(socket.as_raw_fd()) };
         Ok(Client {
